@@ -7,7 +7,6 @@ import enchant
 from nltk.stem import WordNetLemmatizer
 import pprint
 nltk.download('wordnet')
-# nltk.data.path.append('./nltk_data/')
 
 dict = {}
 allwords = []
@@ -55,31 +54,13 @@ def correctText(text):
     return list_str
 
 
-
-# def tokanize(text):
-#     pattern = ""
-#     # Add all keys in the dictionary to pattern
-#     for key in dict.keys():
-#         pattern += key + "|"
-#     pattern += "[0-9]+[.][0-9]+|[0-9]+| g | m | mg | % "
-
-#     list_str = []
-#     while len(text) > 0:
-#         match = re.search(pattern, text)
-#         if match:
-#             token = match.group()
-#             list_str.append(token)
-#             text = text.replace(token, "", 1)
-#         else:
-#             return list_str
-
-
 def isNum(chr):
-    return re.match("^[0-9]+[.][0-9]+|[0-9]+$", chr)
+    return re.match("^[0-9]+[.][0-9]+|[0-9]+|o$", chr)
 
 
 def isValid(chr):
-    return chr == "g" or chr == "m" or chr == "mg" or chr == "%" or chr == "o"
+    return chr == "g" or chr == "m" or chr == "mg" or chr == "%"
+
 
 
 def tokanize(list_str):
@@ -92,7 +73,9 @@ def tokanize(list_str):
             i += 1
         elif list_str[i] in dict:
             ls.append(list_str[i])
-        elif isNum(list_str[i]) or isValid(list_str[i]):
+        elif isNum(list_str[i]):
+            ls.append(list_str[i])
+        elif i > 0 and isValid(list_str[i]) and isNum(list_str[i - 1]):
             ls.append(list_str[i])
         i += 1
     return ls
