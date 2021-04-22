@@ -4,6 +4,7 @@ FROM python
 
 RUN apt-get update -y && \
     apt-get install -y python-pip python-dev\
+    && apt-get install -y nocache\
     && apt-get install enchant -y\
     && apt-get install tesseract-ocr -y\
     && apt-get install tesseract-ocr-eng -y\
@@ -24,7 +25,7 @@ COPY ./requirements.txt /app/requirements.txt
 
 WORKDIR /app
 
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
 
