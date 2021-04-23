@@ -1,0 +1,12 @@
+enchant 
+tesseract-ocr 
+tesseract-ocr-eng 
+libsm6 
+libxrender1 
+libfontconfig1 
+libice6 
+libgl1 
+libarchive13 
+libtesseract-dev 
+libglib2.0-0 
+libglib2.0-dev
