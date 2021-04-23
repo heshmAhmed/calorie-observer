@@ -10,7 +10,7 @@ from sklearn.cluster import k_means
 
 # pytesseract.pytesseract.tesseract_cmd = "C:/Program Files/Tesseract-OCR/tesseract.exe"
 
-pytesseract.pytesseract.tesseract_cmd = '.apt/usr/bin/tesseract'
+# pytesseract.pytesseract.tesseract_cmd = '.apt/usr/bin/tesseract'
 
 
 def show_image(image, title="Image"):
