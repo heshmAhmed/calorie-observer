@@ -63,7 +63,7 @@ def isValid(chr):
 
 
 
-def tokanize(list_str):
+def tokenize(list_str):
     global dict
     ls = []
     i = 0
@@ -75,7 +75,7 @@ def tokanize(list_str):
             ls.append(list_str[i])
         elif isNum(list_str[i]):
             ls.append(list_str[i])
-        elif i > 0 and isValid(list_str[i]) and isNum(list_str[i - 1]):
+        elif i > 0 and isValid(list_str[i]) and isNum(ls[len(ls) - 1]):
             ls.append(list_str[i])
         i += 1
     return ls
@@ -141,7 +141,7 @@ def postprocess(img):
 
     # print()
     # print("Tokenize---------------------------------------")
-    list_str = tokanize(list_str)
+    list_str = tokenize(list_str)
     # print(list_str)
 
     # print()
