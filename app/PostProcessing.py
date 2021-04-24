@@ -49,8 +49,9 @@ def correctText(text):
         if not checker.check(token):
             result = difflib.get_close_matches(token, allwords, 1)
             token = result[0] if type(result) == list and len(result) > 0 else token
-        list_str[i] = lemmatizer.lemmatize(token)
-
+        else:
+            token = lemmatizer.lemmatize(token)
+        list_str[i] = token 
     return list_str
 
 
@@ -124,28 +125,28 @@ def postprocess(img):
     #     + "catciurm 6% lron 15% "
     # )
 
-    # print("Tesseract output--------------------------------------")
-    # print(text)
+    print("Tesseract output--------------------------------------")
+    print(text)
 
-    # print()
-    # print("Some preprocessing------------------------------------------------------")
+    print()
+    print("Some preprocessing------------------------------------------------------")
     text = removeTrash(text)
     text = text.lower()
     text = separateDigits(text)
-    # print(text)
+    print(text)
 
-    # print()
-    # print("Correct text output-----------------------------------")
+    print()
+    print("Correct text output-----------------------------------")
     list_str = correctText(text)
-    # print(list_str)
+    print(list_str)
 
-    # print()
-    # print("Tokenize---------------------------------------")
+    print()
+    print("Tokenize---------------------------------------")
     list_str = tokenize(list_str)
-    # print(list_str)
+    print(list_str)
 
-    # print()
-    # print("Match output------------------------------------------")
+    print()
+    print("Match output------------------------------------------")
     match(list_str)
-    # pprint.pprint(dict)
+    pprint.pprint(dict)
     return dict
