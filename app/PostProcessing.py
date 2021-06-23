@@ -76,7 +76,7 @@ def tokenize(list_str):
             ls.append(list_str[i])
         elif isNum(list_str[i]):
             ls.append(list_str[i])
-        elif i > 0 and isValid(list_str[i]) and isNum(ls[len(ls) - 1]):
+        elif i > 0 and isValid(list_str[i]) and (len(ls) > 0 and isNum(ls[len(ls) - 1])):
             ls.append(list_str[i])
         i += 1
     return ls
