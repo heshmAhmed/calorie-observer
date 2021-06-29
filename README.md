@@ -1,1 +1,1 @@
-# calorie-observer
+# dietary-observer
