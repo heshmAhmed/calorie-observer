@@ -6,7 +6,7 @@ import difflib
 import enchant
 from nltk.stem import WordNetLemmatizer
 import pprint
-nltk.download('wordnet')
+# nltk.download('wordnet')
 
 dict = {}
 allwords = []
@@ -56,7 +56,7 @@ def correctText(text):
 
 
 def isNum(chr):
-    return re.match("^[0-9]+[.][0-9]+|[0-9]+|o$", chr)
+    return re.match("^[0-9]+[.][0-9]+|[0-9]+$", chr)
 
 
 def isValid(chr):
