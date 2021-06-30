@@ -6,7 +6,7 @@ import difflib
 import enchant
 from nltk.stem import WordNetLemmatizer
 import pprint
-# nltk.download('wordnet')
+nltk.download('wordnet')
 
 dict = {}
 allwords = []
