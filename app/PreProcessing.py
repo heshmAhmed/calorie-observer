@@ -8,7 +8,7 @@ import imutils
 print(cv2.__version__)
 
 
-pytesseract.pytesseract.tesseract_cmd = "C:/Program Files/Tesseract-OCR/tesseract.exe"
+# pytesseract.pytesseract.tesseract_cmd = "C:/Program Files/Tesseract-OCR/tesseract.exe"
 
 
 def show_image(image, title="Image"):
