@@ -1,58 +1,75 @@
 import cv2
 import pytesseract
 import numpy as np
-from scipy.ndimage import interpolation as inter
 from skimage.restoration import denoise_tv_chambolle
-from imutils import perspective
-from imutils import contours
 import imutils
-from sklearn.cluster import k_means
 
-# pytesseract.pytesseract.tesseract_cmd = "C:/Program Files/Tesseract-OCR/tesseract.exe"
 
-# pytesseract.pytesseract.tesseract_cmd = '.apt/usr/bin/tesseract'
+print(cv2.__version__)
+
+
+pytesseract.pytesseract.tesseract_cmd = "C:/Program Files/Tesseract-OCR/tesseract.exe"
 
 
 def show_image(image, title="Image"):
     cv2.imshow(title, image)
     cv2.waitKey(0)
 
+def Remove_impurities(img):
+    output = cv2.connectedComponentsWithStats(img, 4, cv2.CV_32S)
+    (numLabels, labels, stats, centroids) = output
+    h_key,w_key=(img.shape[0]/6),(img.shape[1]/6)
+    mask=np.zeros(img.shape, dtype="uint8")
+    for i in range(1, numLabels):
+        x = stats[i, cv2.CC_STAT_LEFT]
+        y = stats[i, cv2.CC_STAT_TOP]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+        area = stats[i, cv2.CC_STAT_AREA]
+        if  h > h_key or w >w_key :
+         mask = cv2.bitwise_or(mask,(labels == i).astype("uint8") * 255)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    mask=cv2.bitwise_not(mask)
 
-def correct_skew(image, delta=3, limit=45):
-    def determine_score(arr, angle):
-        data = inter.rotate(arr, angle, reshape=False, order=0)
-        histogram = np.sum(data, axis=1)
-        score = np.sum((histogram[1:] - histogram[:-1]) ** 2)
-        return histogram, score
+    return mask
 
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
 
-    scores = []
-    angles = np.arange(-limit, limit + delta, delta)
-    for angle in angles:
-        histogram, score = determine_score(thresh, angle)
-        scores.append(score)
 
-    best_angle = angles[scores.index(max(scores))]
-
+def correct_skew(image,gray,gray1,impurities):
+    Kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 2))
+    Dilate = cv2.dilate(image, Kernel, iterations=3)
+    Contours, hierarchy = cv2.findContours(Dilate, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    Contours = sorted(Contours, key=cv2.contourArea, reverse=True)
+    largestContour = Contours[0]
+    angle = cv2.minAreaRect(largestContour)[-1]
+    print(angle)
+    if angle > 45:
+        angle =  angle-90
+    else:
+        angle = angle
     (h, w) = image.shape[:2]
     center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, best_angle, 1.0)
-    rotated = cv2.warpAffine(
-        image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-    )
+    M = cv2.getRotationMatrix2D(center, angle, .98)
+    rotated_without = cv2.warpAffine(image, M, (w, h),
+                                  flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    rotated_gray = cv2.warpAffine(gray, M, (w , h),
+                             flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    rotated_gray1 = cv2.warpAffine(gray1, M, (w, h),
+                                  flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    rotated_impurities = cv2.warpAffine(impurities, M, (w, h),
+                                  flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    rotated_impurities = np.uint8(rotated_impurities)
+    ret, rotated_impurities = cv2.threshold(rotated_impurities, 127, 255, cv2.THRESH_BINARY)
 
-    return best_angle, rotated
+    return rotated_gray,rotated_gray1,rotated_impurities,rotated_without
 
 
-def threshold_image(image, n1, n2):
-    threshold1 = cv2.adaptiveThreshold(
-        image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, n1, n2
-    )
-    threshold2 = cv2.adaptiveThreshold(
-        image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, n1, -n2
-    )
+def threshold_image(image,n1,n2):
+    threshold1 = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, n1, n2)
+    #a=Remove_impurities(dilate)
+    #show_image(a, " a")
+    threshold2 = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, n1, -n2)
     edges1 = cv2.Canny(threshold1, 30, 200)
     edge_count1 = np.count_nonzero(edges1)
     edges2 = cv2.Canny(threshold2, 30, 200)
@@ -61,182 +78,249 @@ def threshold_image(image, n1, n2):
         return threshold1
     return threshold2
 
+def tesseract(thresh):
+    custom_config  = r'--oem 3 -l eng --psm 6'
+    string = pytesseract.image_to_string(thresh, config=custom_config)
+    return string
+def sort_contours(cnts, method):
+	# initialize the reverse flag and sort index
+	reverse = False
+	i = 0
+	# handle if we need to sort in reverse
+	if method == "right-to-left" or method == "bottom-to-top":
+		reverse = True
+	# handle if we are sorting against the y-coordinate rather than
+	# the x-coordinate of the bounding box
+	if method == "top-to-bottom" or method == "bottom-to-top":
+		i = 1
+	# construct the list of bounding boxes and sort them from top to
+	# bottom
+	boundingBoxes = [cv2.boundingRect(c) for c in cnts]
+	(cnts, boundingBoxes) = zip(*sorted(zip(cnts, boundingBoxes),
+		key=lambda b:b[1][i], reverse=reverse))
+	# return the list of sorted contours and bounding boxes
+	return (cnts, boundingBoxes)
+def segment_line(gray,gray1,img_without,img,w_image,h_image):
 
-# Takes  uint8  ,gray
-# returns uint8 , gray
+    sobely = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=5)
+    sobely = np.uint8(sobely)
+    ret, sobely = cv2.threshold(sobely, 127, 255, cv2.THRESH_BINARY)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))
+    opening = cv2.morphologyEx(sobely, cv2.MORPH_OPEN, kernel)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (30, 1))
+    dil = cv2.dilate(opening, kernel, iterations=1)
+    output = cv2.connectedComponentsWithStats(dil, 4, cv2.CV_32S)
+    (numLabels, labels, stats, centroids) = output
+    w_key =img.shape[1] / 6
+    mask = np.zeros(img.shape, dtype="uint8")
+    h_key =0
+    string=""
+    cropped2=[]
+    thresh2=[]
+    final=[]
+    n=0
+    for i in range(1, numLabels):
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        if  w > w_key:
+            y = stats[i, cv2.CC_STAT_TOP]
+            h = stats[i, cv2.CC_STAT_HEIGHT]
+            mask = cv2.bitwise_or(mask, (labels == i).astype("uint8") * 255)
+            cropped = gray1[h_key:y+h, 0: w_image]
+            cropped_without = img_without[h_key:y + h, 0: w_image]
+            croped_imp=img[h_key:y + h, 0: w_image]
+            h_key=y
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (70, 1))
+            morph1 = cv2.dilate(cropped_without, kernel, iterations=10)
+            morph1=cv2.bitwise_not(morph1)
+            morph1=cv2.dilate(morph1, kernel, iterations=10)
+            morph1 = cv2.bitwise_not(morph1)
+            morph1 = cv2.dilate(morph1, kernel, iterations=20)
+            cntrs1 = cv2.findContours(morph1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cntrs1 = imutils.grab_contours(cntrs1)
+            cntrs1 = sorted(cntrs1, key=cv2.contourArea, reverse=True)[:5]
+            if len(cntrs1) > 0:
+              (cntrs1, boundingBoxes) = sort_contours(cntrs1, "top-to-bottom")
+
+            for c in cntrs1:
+                box = cv2.boundingRect(c)
+                xe, ye, we, he = box
+                if he > 10:
+
+                    ythresh = ye
+                    if ye < 5:
+                        ge = 0
+                    else:
+                        ge = 5
+                    if ye + he > cropped_without.shape[0] - 5:
+                        te = 0
+                    else:
+                        te = 5
+
+                    cropped1 = cropped_without[ye - ge:ye + he + te, xe: xe + we]
+                    cr1 = cropped[ye - ge:ye + he + te, xe: xe + we]
+                    cr_imp=croped_imp[ye - ge:ye + he + te, xe: xe + we]
+                    if he< 70:
+                        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+                        morph2 = cv2.dilate(cropped1, kernel, iterations=1)
+                        cntrs2 = cv2.findContours(morph2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        cntrs2 = imutils.grab_contours(cntrs2)
+                        cntrs2 = sorted(cntrs2, key=cv2.contourArea, reverse=True)[:5]
+                        (cntrs2, boundingBoxes) = sort_contours(cntrs2, "left-to-right")
+                        for c2 in cntrs2:
+                            box = cv2.boundingRect(c2)
+                            xo, yo, wo, ho = box
+                            if ho > 15:
+
+                                if yo < 5:
+                                    go = 0
+                                else:
+                                    go = 5
+                                if yo + ho > cropped1.shape[0] - 5:
+                                    to = 0
+                                else:
+                                    to = 5
+
+                                cropped2.append(cr1[yo - go:yo + ho + to, xo: xo + wo])
+                                final.append(cr_imp[yo - go:yo + ho + to, xo: xo + wo])
+                                # clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2, 2))
+                                # equ2 = clahe.apply(cropped2)
+
+                                croped_h = cropped2[n].shape[0]
+                                croped_w = cropped2[n].shape[1]
+                                rate = float(100 / croped_h)
+                                croped_h = 100
+                                croped_w = int(rate * croped_w)
+                                if croped_w > 1300:
+                                    croped_w = 1300
+                                cropped2[n] = cv2.resize(cropped2[n], (croped_w, croped_h),
+                                                         interpolation=cv2.INTER_CUBIC)
+                                final[n] = cv2.resize(final[n], (croped_w, croped_h), interpolation=cv2.INTER_CUBIC)
+                                cropped2[n] = cv2.GaussianBlur(cropped2[n], (5,5),5)
+                                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(2, 2))
+                                cropped2[n]  = clahe.apply(cropped2[n] )
+                                thresh2.append(
+                                    cv2.threshold(cropped2[n], 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1])
+                                cv2.waitKey(0)
+                                cv2.destroyAllWindows()
+                                final[n] = cv2.bitwise_and(thresh2[n], final[n])
+                                string = string + tesseract(final[n])
+                                n = n + 1
+                        string = string + '\n'
+                    else:
+                        string = string + tesseract(cropped1)
+
+
+    cropped = gray[h_key:h_image, 0: w_image]
+
+    cropped_without = img_without[h_key:h_image, 0: w_image]
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (70, 1))
+    morph1 = cv2.dilate(cropped_without, kernel, iterations=10)
+    morph1 = cv2.bitwise_not(morph1)
+    morph1 = cv2.dilate(morph1, kernel, iterations=10)
+    morph1 = cv2.bitwise_not(morph1)
+    morph1 = cv2.dilate(morph1, kernel, iterations=20)
+    cntrs1 = cv2.findContours(morph1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cntrs1 = imutils.grab_contours(cntrs1)
+    cntrs1 = sorted(cntrs1, key=cv2.contourArea, reverse=True)[:5]
+    if len(cntrs1) >0:
+      (cntrs1, boundingBoxes) = sort_contours(cntrs1, "top-to-bottom")
+
+    for c in cntrs1:
+        box = cv2.boundingRect(c)
+        xe, ye, we, he = box
+        if he > 15:
+
+            ythresh = ye
+            if ye < 5:
+                ge = 0
+            else:
+                ge = 5
+            if ye + he > cropped_without.shape[0] - 5:
+                te = 0
+            else:
+                te = 5
+
+            cropped1 = cropped_without[ye - ge:ye + he + te, xe: xe + we]
+            cr1 = cropped[ye - ge:ye + he + te, xe: xe + we]
+            cr_imp = croped_imp[ye - ge:ye + he + te, xe: xe + we]
+            if he < 70:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+                morph2 = cv2.dilate(cropped1, kernel, iterations=1)
+                cntrs2 = cv2.findContours(morph2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cntrs2 = imutils.grab_contours(cntrs2)
+                cntrs2 = sorted(cntrs2, key=cv2.contourArea, reverse=True)[:5]
+                (cntrs2, boundingBoxes) = sort_contours(cntrs2, "left-to-right")
+                for c2 in cntrs2:
+                    box = cv2.boundingRect(c2)
+                    xo, yo, wo, ho = box
+                    if ho > 15:
+
+                        if yo < 5:
+                            go = 0
+                        else:
+                            go = 5
+                        if yo + ho > cropped1.shape[0] - 5:
+                            to = 0
+                        else:
+                            to = 5
+
+                        cropped2.append(cr1[yo - go:yo + ho + to, xo: xo + wo])
+                        final.append(cr_imp[yo - go:yo + ho + to, xo: xo + wo])
+                        # clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2, 2))
+                        # equ2 = clahe.apply(cropped2)
+
+                        croped_h = cropped2[n].shape[0]
+                        croped_w = cropped2[n].shape[1]
+                        rate = float(100 / croped_h)
+                        croped_h = 100
+                        croped_w = int(rate * croped_w)
+                        if croped_w > 1300:
+                            croped_w = 1300
+                        cropped2[n] = cv2.resize(cropped2[n], (croped_w, croped_h),
+                                                 interpolation=cv2.INTER_CUBIC)
+                        final[n] = cv2.resize(final[n], (croped_w, croped_h), interpolation=cv2.INTER_CUBIC)
+                        cropped2[n] = cv2.GaussianBlur(cropped2[n], (5, 5), 5)
+                        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(2, 2))
+                        cropped2[n] = clahe.apply(cropped2[n])
+                        thresh2.append(
+                            cv2.threshold(cropped2[n], 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1])
+
+                        cv2.destroyAllWindows()
+                        final[n] = cv2.bitwise_and(thresh2[n], final[n])
+                        string = string + tesseract(final[n])
+                        n = n + 1
+                string = string + '\n'
+            else:
+                string = string + tesseract(cropped1)
+
+
+    return string
+
+
+
 def rescaling(image):
-    resized = cv2.resize(image, (700, 700), interpolation=cv2.INTER_CUBIC)
-    return resized
+    height=image.shape[0]
+    width=image.shape[1]
+    rate = float(680 / height)
+    height = 680
+    width = int(rate * width)
+    if width > 1300:
+        width = 1300
+    resized = cv2.resize(image, (width, height), interpolation=cv2.INTER_CUBIC)
+    return resized,width,height
 
 
-def medianFiltering(img_noisy1):
-    # Obtain the number of rows and columns
-    # of the image
-    m, n = img_noisy1.shape
 
-    # Traverse the image. For every 3X3 area,
-    # find the median of the pixels and
-    # replace the ceter pixel by the median
-    img_new1 = np.zeros([m, n])
-    for i in range(1, m - 1):
-        for j in range(1, n - 1):
-            temp = [
-                img_noisy1[i - 1, j - 1],
-                img_noisy1[i - 1, j],
-                img_noisy1[i - 1, j + 1],
-                img_noisy1[i, j - 1],
-                img_noisy1[i, j],
-                img_noisy1[i, j + 1],
-                img_noisy1[i + 1, j - 1],
-                img_noisy1[i + 1, j],
-                img_noisy1[i + 1, j + 1],
-            ]
-
-            temp = sorted(temp)
-            img_new1[i, j] = temp[4]
-
-    return img_new1.astype(np.uint8)
-
-
-# takes float64 , gray
-# returns uint8  , gray
-def normalize(img):
-    #    info = np.iinfo(data.dtype) # Get the information of the incoming image type
-    #    data = data.astype(np.float64) / info.max # normalize the data to 0 - 1
-    img = 255 * img  # Now scale by 255
-    img = img.astype(np.uint8)
-    return img
-
-
-# takes uint8  gray
-# returns flaot64  gray
 def de_noise(img):
     denoised_image_tv = denoise_tv_chambolle(img, weight=0.1, multichannel=True)
     # denoised_image_tv = denoised_image_tv.astype(np.uint8)
     return denoised_image_tv
 
-
-# Contrasting and Filtering
-# takes uint8  gray
-# returns uint8  gray
 def clah(img):
-    # create a CLAHE object (Arguments are optional).
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(16, 16))
     return clahe.apply(img)
 
-
-def find_table(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    thresh = threshold_image(gray, 9, 5)
-    # edged = cv2.Canny(gray, 50, 100)
-
-    output = cv2.connectedComponentsWithStats(thresh, 4, cv2.CV_32S)
-    (numLabels, labels, stats, centroids) = output
-    max_w, max_m, max_h = 0, 0, 0
-    for i in range(1, numLabels):
-        # if this is the first component then we examine the
-        # *background* (typically we would just ignore this
-        # component in our loop)
-        if i == 0:
-            text = "examining component {}/{} (background)".format(i + 1, numLabels)
-        # otherwise, we are examining an actual connected component
-        else:
-            text = "examining component {}/{}".format(i + 1, numLabels)
-        # print a status message update for the current connected
-        # component
-        # print("[INFO] {}".format(text))
-        # extract the connected component statistics and centroid for
-        # the current label
-        x = stats[i, cv2.CC_STAT_LEFT]
-        y = stats[i, cv2.CC_STAT_TOP]
-        w = stats[i, cv2.CC_STAT_WIDTH]
-        h = stats[i, cv2.CC_STAT_HEIGHT]
-        area = stats[i, cv2.CC_STAT_AREA]
-        m = w + h
-        if max_m < m:
-            (X, Y, max_w, max_h, I, max_m) = x, y, w, h, i, m
-
-    output = img.copy()
-    cv2.rectangle(output, (X, Y), (X + max_w, Y + max_h), (0, 255, 0), 3)
-    componentMask = (labels == I).astype("uint8") * 255
-    cnts = cv2.findContours(
-        componentMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-    cnts = imutils.grab_contours(cnts)
-    # sort the contours from left-to-right and initialize the
-    # 'pixels per metric' calibration variable
-    (cnts, _) = contours.sort_contours(cnts)
-    pixelsPerMetric = None
-    for c in cnts:
-        # if the contour is not sufficiently large, ignore it
-        if cv2.contourArea(c) < 100:
-            continue
-        # compute the rotated bounding box of the contour
-        orig = img.copy()
-        box = cv2.minAreaRect(c)
-        box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
-        box = np.array(box, dtype="int")
-        # order the points in the contour such that they appear
-        # in top-left, top-right, bottom-right, and bottom-left
-        # order, then draw the outline of the rotated bounding
-        # box
-        box = perspective.order_points(box)
-        cv2.drawContours(orig, [box.astype("int")], -1, (0, 255, 0), 2)
-        # loop over the original points and draw them
-        for (x, y) in box:
-            cv2.circle(orig, (int(x), int(y)), 5, (0, 0, 255), -1)
-            # (orig, "Image")
-
-    # contours,_= cv2.findContours(componentMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    # mask = np.zeros(componentMask.shape, np.uint8)
-    # cv2.fillPoly(mask, contours, 255)
-    # kernel = np.ones((15, 15), np.uint8)
-    # erosion = cv2.erode(mask, kernel, iterations=1)
-    # n=cv2.bitwise_and(erosion,thresh)
-
-    # show our output image and connected component mask
-    # (output, "Output")
-    # (thresh, "Thresh")
-    # (componentMask, "Connected Component")
-    return (X, Y, max_w, max_h)
-
-
-def new_cut_table(img):
-    (x, y, width, height) = find_table(img)
-    circles = [[x, y], [x + width, y], [x, y + height], [x + width, y + height]]
-    rate = float(700 / height)
-    width = int(rate * width)
-    if width > 1300:
-        width = 1300
-    height = 700
-    pts1 = np.float32([circles[0], circles[1], circles[2], circles[3]])
-    pts2 = np.float32([[0, 0], [width, 0], [0, height], [width, height]])
-    matrix = cv2.getPerspectiveTransform(pts1, pts2)
-    output = cv2.warpPerspective(img, matrix, (width, height))
-    return output
-
-
-def Remove_impurities(img):
-    output = cv2.connectedComponentsWithStats(img, 4, cv2.CV_32S)
-    (numLabels, labels, stats, centroids) = output
-    h_key, w_key = (img.shape[0] / 6), (img.shape[1] / 4)
-    mask = np.zeros(img.shape, dtype="uint8")
-    for i in range(1, numLabels):
-        x = stats[i, cv2.CC_STAT_LEFT]
-        y = stats[i, cv2.CC_STAT_TOP]
-        w = stats[i, cv2.CC_STAT_WIDTH]
-        h = stats[i, cv2.CC_STAT_HEIGHT]
-        area = stats[i, cv2.CC_STAT_AREA]
-        if h > h_key or w > w_key:
-            mask = cv2.bitwise_or(mask, (labels == i).astype("uint8") * 255)
-
-    mask = cv2.bitwise_not(mask)
-    mask = cv2.bitwise_and(mask, img)
-    return mask
-
-
-# Morph open to remove noise
-# takes uint8 gray
 def morphOpen(image):
     # kernel = np.ones((2,2),np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
@@ -246,117 +330,29 @@ def morphOpen(image):
     # erosion = cv2.erode(dilation,kernel,iterations = 1)
     return closing
 
-
-circles = np.zeros((4, 2), np.int)
-counter = 0
-
-
-def mousePointers(event, x, y, flags, parameters):
-    global counter
-    if event == cv2.EVENT_LBUTTONDOWN:
-        circles[counter] = x, y
-        counter = counter + 1
-
-
-def cut_table(image):
-    scale_percent = 120  # percent of original size
-    # width = int((circles[1][0]-circles[0][0]) * scale_percent / 100)
-    # height = int((circles[2][1]-circles[0][1])  * scale_percent / 100)
-
-    width, height = int(circles[1][0] - circles[0][0]), int(
-        circles[2][1] - circles[0][1]
-    )
-    rate = float(700 / height)
-    width = int(rate * width)
-    if width > 1300:
-        width = 1300
-    height = 700
-    pts1 = np.float32([circles[0], circles[1], circles[2], circles[3]])
-    pts2 = np.float32([[0, 0], [width, 0], [0, height], [width, height]])
-    matrix = cv2.getPerspectiveTransform(pts1, pts2)
-    output = cv2.warpPerspective(image, matrix, (width, height))
-    return output
-
-
-def remove_lines(image):
-    vertical = image
-    verticalStructure = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 100))
-    vertical = cv2.erode(vertical, verticalStructure, iterations=1)
-    vertical = cv2.dilate(vertical, verticalStructure, iterations=1)
-    verticalStructure = np.ones((9, 9), np.uint8)
-    vertical = cv2.dilate(vertical, verticalStructure, iterations=1)
-    vertical = cv2.bitwise_not(vertical)
-
-    horizontal = image
-    verticalStructure = cv2.getStructuringElement(cv2.MORPH_RECT, (100, 1))
-    horizontal = cv2.erode(horizontal, verticalStructure, iterations=1)
-    horizontal = cv2.dilate(horizontal, verticalStructure, iterations=1)
-    horizontalStructure = np.ones((8, 8), np.uint8)
-    horizontal = cv2.dilate(horizontal, horizontalStructure, iterations=1)
-    horizontal = cv2.bitwise_not(horizontal)
-
-    thresh = cv2.bitwise_and(image, image, mask=vertical)
-    thresh = cv2.bitwise_and(thresh, thresh, mask=horizontal)
-    thresh = cv2.bitwise_not(thresh)
-    return thresh
-
-
 def histogramequlization(img):
 
     hsv_image = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
     h, s, v = cv2.split(hsv_image)
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     v = clahe.apply(v)
 
     hsv_image = cv2.merge([h, s, v])
-    hsv_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2RGB)
+    img = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2RGB)
 
-    img = cv2.fastNlMeansDenoisingColored(hsv_image, None, 10, 10, 9, 21)
+    img = cv2.fastNlMeansDenoisingColored(img, None, 15, 15, 9, 21)
 
     return img
 
-
-def tesseract(thresh):
-    custom_config = r"--oem 3 --psm 6"
-    string = pytesseract.image_to_string(thresh, config=custom_config)
-    return string
-
-
-def preprocess(img):
-    # read image
-    img = rescaling(img)
-    # show_image(img)
-    
+def preprocess(image):
+    img, wid, hig = rescaling(image)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img = histogramequlization(img)
-    # show_image(img, " equalizeHist")
-    
-    img = new_cut_table(img)
-    # show_image(img, "cut")
-    
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # show_image(img, " gray")
-    
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    img = clahe.apply(img)
-
-    img = de_noise(img)
-    # show_image(img, "Denoise")
-
-    img = normalize(img)
-    # show_image(img, "Normalized")
-
-    img = threshold_image(img, 35, 11)
-    # show_image(img, "threshold_image")
-
-    img = Remove_impurities(img)
-    # show_image(img, "threshold_image")
-
-    img = remove_lines(img)
-    # show_image(img, "remove_lines")
-
-    img = morphOpen(img)
-    # show_image(img, "morph")
-
-    text = tesseract(img)
-    return text
+    gray1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img=threshold_image(gray1,15,5)
+    impurities=Remove_impurities(img)
+    image_without_impurities = cv2.bitwise_and(impurities, img)
+    gray1,gray,rotated_impurities,rotated_without= correct_skew(image_without_impurities,gray1,gray,impurities)
+    string=segment_line(gray1,gray,rotated_without, rotated_impurities, wid, hig)
+    return  string
